@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Button, Stack } from "react-bootstrap";
 import Container from "react-bootstrap/Container";
 import AddBudgetModal from "./components/AddBudgetModal";
@@ -6,37 +6,7 @@ import AddExpenseModal from "./components/AddExpenseModal";
 import ViewExpensesModal from "./components/ViewExpensesModal";
 import BudgetCard from "./components/BudgetCard";
 import { useBudgets } from "./contexts/BudgetsContext";
-import { Canvas } from "@react-three/fiber";
-import { OrbitControls, useGLTF } from "@react-three/drei";
-
-function ShibaModel(props) {
-  const { nodes, materials } = useGLTF('/shiba.glb'); // Load the GLTF model
-  return (
-    <group {...props} dispose={null}>
-      <mesh
-        castShadow
-        receiveShadow
-        geometry={nodes.Group18985_default_0.geometry}
-        material={materials['default']}
-        rotation={[-Math.PI / 2, 0, 0]}
-      />
-      <mesh
-        castShadow
-        receiveShadow
-        geometry={nodes.Box002_default_0.geometry}
-        material={materials['default']}
-        rotation={[-Math.PI / 2, 0, 0]}
-      />
-      <mesh
-        castShadow
-        receiveShadow
-        geometry={nodes.Object001_default_0.geometry}
-        material={materials['default']}
-        rotation={[-Math.PI / 2, 0, 0]}
-      />
-    </group>
-  );
-}
+import * as THREE from "three";
 
 function App() {
   const [showAddBudgetModal, setShowAddBudgetModal] = useState(false);
@@ -45,39 +15,89 @@ function App() {
   const [addExpenseModalBudgetId, setAddExpenseModalBudgetId] = useState();
   const { budgets, getBudgetExpenses } = useBudgets();
 
-  // State to control the visibility of the model
-  const [showShibaModel, setShowShibaModel] = useState(true);
+  const threeRef = useRef();
+
+  // Three.js setup
+  useEffect(() => {
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    threeRef.current.appendChild(renderer.domElement);
+
+    // Create particle system
+    const particleCount = 1000;
+    const particles = new THREE.BufferGeometry();
+    const positions = new Float32Array(particleCount * 3); // x, y, z for each particle
+
+    for (let i = 0; i < particleCount * 3; i++) {
+      positions[i] = (Math.random() - 0.5) * 50; // Random positions scattered over a larger area
+    }
+    particles.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+
+    const particleMaterial = new THREE.PointsMaterial({
+      color: 0x888888, // Light gray color for particles
+      size: 0.1, // Size of the particles
+      transparent: true,
+      opacity: 0.8,
+    });
+
+    const particleSystem = new THREE.Points(particles, particleMaterial);
+    scene.add(particleSystem);
+
+    camera.position.z = 20; // Position camera further away for better view of particles
+
+    // Animation loop
+    function animate() {
+      requestAnimationFrame(animate);
+      // Rotate particles for a dynamic effect
+      particleSystem.rotation.y += 0.01;
+
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    // Handle window resize
+    const handleResize = () => {
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+    };
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      renderer.dispose();
+      window.removeEventListener("resize", handleResize);
+    };
+  }, []);
+
+  function openAddExpenseModal(budgetId) {
+    setShowAddExpenseModal(true);
+    setAddExpenseModalBudgetId(budgetId);
+  }
+
+  const backgroundStyles = {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    width: "100vw",
+    height: "100vh",
+    zIndex: -1,
+    backgroundColor: "#000", // Dark background
+  };
 
   return (
     <>
-      {/* Three.js Canvas with Shiba model */}
-      <Canvas
-        style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          width: "100vw",
-          height: "100vh",
-        }}
-        camera={{ position: [0, 0, 5], fov: 75 }}
-      >
-        <ambientLight intensity={0.5} />
-        <directionalLight position={[0, 0, 5]} intensity={1} />
-        {showShibaModel && <ShibaModel />} {/* Render the Shiba model based on visibility */}
-        <OrbitControls /> {/* Enable orbiting around the model */}
-      </Canvas>
+      <div ref={threeRef} style={backgroundStyles} />
 
-      <Container className="my-4" style={{ position: 'relative', zIndex: 1 }}>
+      <Container className="my-4">
         <Stack direction="horizontal" gap="2" className="mb-4">
           <h1 className="me-auto">Budgets</h1>
           <Button variant="primary" onClick={() => setShowAddBudgetModal(true)}>
             Add Budget
           </Button>
-          <Button variant="outline-primary" onClick={() => setShowAddExpenseModal(true)}>
+          <Button variant="outline-primary" onClick={openAddExpenseModal}>
             Add Expense
-          </Button>
-          <Button variant="outline-secondary" onClick={() => setShowShibaModel(!showShibaModel)}>
-            Toggle Shiba Model
           </Button>
         </Stack>
         <div
@@ -99,14 +119,15 @@ function App() {
                 name={budget.name}
                 amount={amount}
                 max={budget.max}
-                onAddExpenseClick={() => setAddExpenseModalBudgetId(budget.id)}
-                onViewExpensesClick={() => setViewExpensesModalBudgetId(budget.id)}
+                onAddExpenseClick={() => openAddExpenseModal(budget.id)}
+                onViewExpensesClick={() =>
+                  setViewExpensesModalBudgetId(budget.id)
+                }
               />
             );
           })}
         </div>
       </Container>
-
       <AddBudgetModal
         show={showAddBudgetModal}
         handleClose={() => setShowAddBudgetModal(false)}
@@ -120,6 +141,21 @@ function App() {
         budgetId={viewExpensesModalBudgetId}
         handleClose={() => setViewExpensesModalBudgetId()}
       />
+
+      {/* Inline keyframes in JSX using a style tag */}
+      <style>
+        {`
+          @keyframes gradientShift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+          }
+          @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-20px); }
+          }
+        `}
+      </style>
     </>
   );
 }
